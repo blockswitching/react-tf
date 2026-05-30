@@ -1,554 +1,387 @@
-import { useRef, useMemo, useEffect, useState } from "react";
+import { useRef, useEffect, useState, Component, type ReactNode } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
+import { Stars, Float, MeshDistortMaterial } from "@react-three/drei";
 import * as THREE from "three";
+import "./LandingPage.css";
 
-const COLORS = {
-  cyan: "#00ffff",
-  purple: "#8b5cf6",
-  blue: "#06b6d4",
-};
+// ─── Canvas error boundary ────────────────────────────────────────────────────
 
-function FloatingNode({
-  position,
-}: {
-  position: [number, number, number];
-}) {
-  const ref = useRef<THREE.Mesh>(null!);
-
-  useFrame((state: any) => {
-    ref.current.position.y =
-      position[1] +
-      Math.sin(state.clock.elapsedTime + position[0]) * 0.1;
-
-    ref.current.rotation.x += 0.01;
-    ref.current.rotation.y += 0.01;
-  });
-
-  return (
-    <mesh ref={ref} position={position}>
-      <sphereGeometry args={[0.08, 16, 16]} />
-      <meshStandardMaterial
-        color={COLORS.cyan}
-        emissive={COLORS.cyan}
-        emissiveIntensity={2}
-      />
-    </mesh>
-  );
+class CanvasBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
 }
 
-function ConnectionLine({
-  start,
-  end,
-}: {
-  start: [number, number, number];
-  end: [number, number, number];
-}) {
-  const ref = useRef<THREE.Line>(null!);
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-  const points = useMemo(() => {
-    return [
-      new THREE.Vector3(...start),
-      new THREE.Vector3(...end),
-    ];
-  }, [start, end]);
+type MouseRef = { current: { x: number; y: number } };
 
-  const geometry = useMemo(() => {
-    return new THREE.BufferGeometry().setFromPoints(points);
-  }, [points]);
+// ─── 3D: Morphing blob ────────────────────────────────────────────────────────
 
-  return (
-    <primitive
-      object={
-        new THREE.Line(
-          geometry,
-          new THREE.LineBasicMaterial({
-            color: COLORS.blue,
-            transparent: true,
-            opacity: 0.3,
-          })
-        )
-      }
-      ref={ref}
-    />
-  );
-}
-
-function Packet({
-  start,
-  end,
-}: {
-  start: [number, number, number];
-  end: [number, number, number];
-}) {
-  const ref = useRef<THREE.Mesh>(null!);
-
-  const progress = useRef(Math.random());
+function Blob({ mouse }: { mouse: MouseRef }) {
+  const mesh = useRef<THREE.Mesh>(null!);
 
   useFrame(() => {
-    progress.current += 0.003;
-
-    if (progress.current > 1) {
-      progress.current = 0;
-    }
-
-    const x =
-      start[0] + (end[0] - start[0]) * progress.current;
-
-    const y =
-      start[1] + (end[1] - start[1]) * progress.current;
-
-    const z =
-      start[2] + (end[2] - start[2]) * progress.current;
-
-    ref.current.position.set(x, y, z);
+    mesh.current.rotation.x = THREE.MathUtils.lerp(
+      mesh.current.rotation.x,
+      mouse.current.y * 0.3,
+      0.05
+    );
+    mesh.current.rotation.y = THREE.MathUtils.lerp(
+      mesh.current.rotation.y,
+      mouse.current.x * 0.3,
+      0.05
+    );
   });
 
   return (
-    <mesh ref={ref}>
-      <sphereGeometry args={[0.03, 12, 12]} />
-      <meshBasicMaterial color="white" />
-    </mesh>
+    <Float speed={1.5} rotationIntensity={0.3} floatIntensity={1}>
+      <mesh ref={mesh}>
+        <icosahedronGeometry args={[2, 4]} />
+        <MeshDistortMaterial
+          color="#6d28d9"
+          distort={0.4}
+          speed={2}
+          roughness={0.1}
+          metalness={0.9}
+          emissive="#2e1065"
+          emissiveIntensity={0.5}
+        />
+      </mesh>
+    </Float>
   );
 }
 
-function NetworkSphere() {
-  const groupRef = useRef<THREE.Group>(null!);
+// ─── 3D: Orbiting ring of dots ────────────────────────────────────────────────
 
-  const nodes = useMemo(() => {
-    return Array.from({ length: 80 }, () => [
-      (Math.random() - 0.5) * 8,
-      (Math.random() - 0.5) * 8,
-      (Math.random() - 0.5) * 8,
-    ]) as [number, number, number][];
-  }, []);
+function Ring({ mouse }: { mouse: MouseRef }) {
+  const group = useRef<THREE.Group>(null!);
 
-  const connections = useMemo(() => {
-    const result: {
-      start: [number, number, number];
-      end: [number, number, number];
-    }[] = [];
+  useFrame(({ clock }) => {
+    group.current.rotation.y = clock.elapsedTime * 0.22;
+    group.current.rotation.z = THREE.MathUtils.lerp(
+      group.current.rotation.z,
+      mouse.current.x * 0.14,
+      0.04
+    );
+  });
 
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const dx = nodes[i][0] - nodes[j][0];
-        const dy = nodes[i][1] - nodes[j][1];
-        const dz = nodes[i][2] - nodes[j][2];
-
-        const distance = Math.sqrt(
-          dx * dx + dy * dy + dz * dz
+  return (
+    <group ref={group}>
+      {Array.from({ length: 10 }, (_, i) => {
+        const a = (i / 10) * Math.PI * 2;
+        return (
+          <mesh key={i} position={[Math.cos(a) * 3.8, Math.sin(a) * 3.8, 0]}>
+            <sphereGeometry args={[0.1, 12, 12]} />
+            <meshStandardMaterial color="#22d3ee" emissive="#22d3ee" emissiveIntensity={4} />
+          </mesh>
         );
-
-        if (distance < 2.5 && Math.random() > 0.7) {
-          result.push({
-            start: nodes[i],
-            end: nodes[j],
-          });
-        }
-      }
-    }
-
-    return result;
-  }, [nodes]);
-
-  useFrame(() => {
-    groupRef.current.rotation.y += 0.001;
-    groupRef.current.rotation.x += 0.0005;
-  });
-
-  return (
-    <group ref={groupRef}>
-      {nodes.map((node, i) => (
-        <FloatingNode key={i} position={node} />
-      ))}
-
-      {connections.map((line, i) => (
-        <ConnectionLine
-          key={i}
-          start={line.start}
-          end={line.end}
-        />
-      ))}
-
-      {connections.slice(0, 20).map((line, i) => (
-        <Packet
-          key={i}
-          start={line.start}
-          end={line.end}
-        />
-      ))}
+      })}
     </group>
   );
 }
 
-function TerminalLogs() {
-  const logs = [
-    "[INFO] Initializing infrastructure...",
-    "[INFO] Connecting global nodes...",
-    "[SUCCESS] AI routing enabled",
-    "[INFO] Neural firewall online",
-    "[SUCCESS] Kubernetes mesh synced",
-    "[WARNING] Threat blocked",
-  ];
+// ─── 3D: Second tilted ring ───────────────────────────────────────────────────
 
-  const [visibleLogs, setVisibleLogs] = useState<string[]>(
-    []
+function Ring2({ mouse }: { mouse: MouseRef }) {
+  const group = useRef<THREE.Group>(null!);
+
+  useFrame(({ clock }) => {
+    group.current.rotation.x = clock.elapsedTime * 0.18;
+    group.current.rotation.y = THREE.MathUtils.lerp(
+      group.current.rotation.y,
+      mouse.current.y * 0.12,
+      0.03
+    );
+  });
+
+  return (
+    <group ref={group} rotation={[Math.PI / 3, 0, 0]}>
+      {Array.from({ length: 7 }, (_, i) => {
+        const a = (i / 7) * Math.PI * 2;
+        return (
+          <mesh key={i} position={[Math.cos(a) * 3.2, Math.sin(a) * 3.2, 0]}>
+            <sphereGeometry args={[0.07, 10, 10]} />
+            <meshStandardMaterial color="#a855f7" emissive="#a855f7" emissiveIntensity={5} />
+          </mesh>
+        );
+      })}
+    </group>
   );
+}
+
+function Scene({ mouse }: { mouse: MouseRef }) {
+  return (
+    <>
+      <ambientLight intensity={0.25} />
+      <pointLight position={[8, 8, 8]} intensity={5} color="#7c3aed" />
+      <pointLight position={[-8, -8, -8]} intensity={4} color="#22d3ee" />
+      <pointLight position={[0, 10, -6]} intensity={2} color="#a855f7" />
+      <Stars radius={120} depth={60} count={6000} factor={3} saturation={0.4} fade speed={0.4} />
+      <Blob mouse={mouse} />
+      <Ring mouse={mouse} />
+      <Ring2 mouse={mouse} />
+    </>
+  );
+}
+
+// ─── Terminal logs ────────────────────────────────────────────────────────────
+
+const LOGS = [
+  { color: "#22d3ee", text: "[INFO] Initializing infrastructure..." },
+  { color: "#22d3ee", text: "[INFO] Connecting global nodes..." },
+  { color: "#4ade80", text: "[SUCCESS] AI routing enabled" },
+  { color: "#22d3ee", text: "[INFO] Neural firewall online" },
+  { color: "#4ade80", text: "[SUCCESS] Kubernetes mesh synced" },
+  { color: "#facc15", text: "[WARNING] Threat blocked — 18,221" },
+];
+
+function Terminal() {
+  const [lines, setLines] = useState<typeof LOGS>([]);
 
   useEffect(() => {
     let i = 0;
-
-    const interval = setInterval(() => {
-      setVisibleLogs((prev) => [...prev, logs[i]]);
-      i++;
-
-      if (i >= logs.length) {
-        clearInterval(interval);
-      }
-    }, 800);
-
-    return () => clearInterval(interval);
+    const iv = setInterval(() => {
+      const idx = i++;
+      setLines(prev => (idx < LOGS.length ? [...prev, LOGS[idx]] : prev));
+      if (i >= LOGS.length) clearInterval(iv);
+    }, 700);
+    return () => clearInterval(iv);
   }, []);
 
   return (
-    <div
-      style={{
-        marginTop: 30,
-        background: "rgba(0,0,0,0.5)",
-        border: "1px solid rgba(0,255,255,0.2)",
-        borderRadius: 16,
-        padding: "1rem",
-        width: 420,
-        fontFamily: "monospace",
-        color: "#00ffff",
-        backdropFilter: "blur(20px)",
-      }}
-    >
-      {visibleLogs.map((log, i) => (
-        <div key={i} style={{ marginBottom: 10 }}>
-          {log}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Metric({
-  title,
-  value,
-}: {
-  title: string;
-  value: string;
-}) {
-  return (
-    <div
-      style={{
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        borderRadius: 20,
-        padding: "2rem",
-        backdropFilter: "blur(20px)",
-      }}
-    >
-      <div
-        style={{
-          color: "rgba(255,255,255,0.45)",
-          marginBottom: 10,
-          fontSize: 13,
-          letterSpacing: "0.1em",
-        }}
-      >
-        {title}
+    <div className="lp-terminal">
+      <div className="lp-terminal-bar">
+        <span className="lp-dot" style={{ background: "#ef4444" }} />
+        <span className="lp-dot" style={{ background: "#facc15" }} />
+        <span className="lp-dot" style={{ background: "#4ade80" }} />
+        <span className="lp-terminal-title">neural-ops ~ system</span>
       </div>
-
-      <div
-        style={{
-          color: COLORS.cyan,
-          fontSize: "2.5rem",
-          fontWeight: 800,
-        }}
-      >
-        {value}
+      <div className="lp-terminal-body">
+        {lines.map((l, i) => (
+          <div key={i} style={{ color: l.color }}>{l.text}</div>
+        ))}
+        {lines.length < LOGS.length && <span className="lp-blink">█</span>}
       </div>
     </div>
   );
 }
+
+// ─── Page data ────────────────────────────────────────────────────────────────
+
+const FEATURES = [
+  {
+    icon: "◈",
+    title: "3D Infrastructure",
+    desc: "Visualize your entire cloud topology as a live, navigable 3D graph in real time.",
+  },
+  {
+    icon: "⚡",
+    title: "AI Routing",
+    desc: "Neural networks compute optimal packet paths across your mesh in under 10ms.",
+  },
+  {
+    icon: "⬡",
+    title: "Neural Firewall",
+    desc: "Adaptive threat detection that evolves with every new attack pattern it sees.",
+  },
+  {
+    icon: "◎",
+    title: "Edge Mesh",
+    desc: "Instant deployment to 420+ edge nodes across 78 countries worldwide.",
+  },
+];
+
+const STATS = [
+  { value: "420+", label: "Edge Nodes" },
+  { value: "12ms", label: "Avg Latency" },
+  { value: "99.99%", label: "Uptime SLA" },
+  { value: "18k+", label: "Threats Blocked" },
+];
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function LandingPage() {
+  const mouseRef = useRef({ x: 0, y: 0 });
+  const cursorRef = useRef<HTMLDivElement>(null);
+  const [modal, setModal] = useState(false);
+
+  // Mouse tracking — update 3D scene ref and cursor glow via DOM (no re-render)
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      mouseRef.current = {
+        x: (e.clientX / window.innerWidth - 0.5) * 2,
+        y: -(e.clientY / window.innerHeight - 0.5) * 2,
+      };
+      if (cursorRef.current) {
+        cursorRef.current.style.left = `${e.clientX}px`;
+        cursorRef.current.style.top = `${e.clientY}px`;
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, []);
+
+  // Scroll reveal
+  useEffect(() => {
+    const obs = new IntersectionObserver(
+      entries => entries.forEach(e => e.isIntersecting && e.target.classList.add("revealed")),
+      { threshold: 0.12 }
+    );
+    document.querySelectorAll(".reveal").forEach(el => obs.observe(el));
+    return () => obs.disconnect();
+  }, []);
+
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        overflow: "hidden",
-        background:
-          "radial-gradient(circle at top, #111827 0%, #020617 50%, #000000 100%)",
-        color: "white",
-        fontFamily: "Inter, sans-serif",
-        position: "relative",
-      }}
-    >
-      <style>{`
-        body {
-          margin: 0;
-          overflow-x: hidden;
-        }
+    <div className="lp">
+      {/* Cursor glow — position updated via ref, no re-render */}
+      <div ref={cursorRef} className="lp-cursor-glow" />
 
-        .grid-bg {
-          position: absolute;
-          inset: 0;
-          background-image:
-            linear-gradient(rgba(0,255,255,0.05) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0,255,255,0.05) 1px, transparent 1px);
-          background-size: 60px 60px;
-          pointer-events: none;
-        }
+      {/* Ambient background orbs */}
+      <div className="lp-orb lp-orb-1" />
+      <div className="lp-orb lp-orb-2" />
+      <div className="lp-orb lp-orb-3" />
 
-        .glow {
-          text-shadow:
-            0 0 10px rgba(0,255,255,0.8),
-            0 0 20px rgba(0,255,255,0.4);
-        }
-      `}</style>
-
-      <div className="grid-bg" />
-
-      {/* NAVBAR */}
-      <nav
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 80,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0 3rem",
-          zIndex: 100,
-          backdropFilter: "blur(20px)",
-        }}
-      >
-        <div
-          className="glow"
-          style={{
-            color: COLORS.cyan,
-            fontWeight: 900,
-            fontSize: 28,
-          }}
-        >
+      {/* ── Navbar ─────────────────────────────────────────────────────────── */}
+      <nav className="lp-nav">
+        <div className="lp-logo">
+          <span className="lp-logo-mark">N</span>
           NEURAL OPS
         </div>
-
-        <div
-          style={{
-            display: "flex",
-            gap: "2rem",
-            color: "rgba(255,255,255,0.6)",
-          }}
-        >
-          <span>Infrastructure</span>
-          <span>AI Routing</span>
-          <span>Security</span>
-          <span>Edge Mesh</span>
+        <div className="lp-nav-links">
+          <a href="#">Infrastructure</a>
+          <a href="#">AI Routing</a>
+          <a href="#">Security</a>
+          <a href="#">Edge Mesh</a>
         </div>
+        <button className="lp-btn-outline" onClick={() => setModal(true)}>
+          Get Access
+        </button>
       </nav>
 
-      {/* HERO */}
-      <section
-        style={{
-          height: "100vh",
-          display: "flex",
-          alignItems: "center",
-          padding: "0 6rem",
-          position: "relative",
-        }}
-      >
-        {/* LEFT */}
-        <div
-          style={{
-            position: "relative",
-            zIndex: 10,
-            width: "50%",
-          }}
-        >
-          <div
-            style={{
-              display: "inline-flex",
-              gap: 10,
-              alignItems: "center",
-              padding: "8px 18px",
-              borderRadius: 999,
-              background: "rgba(0,255,255,0.08)",
-              border: "1px solid rgba(0,255,255,0.2)",
-            }}
-          >
-            <div
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: COLORS.cyan,
-              }}
-            />
+      {/* ── Hero ───────────────────────────────────────────────────────────── */}
+      <section className="lp-hero">
+        <div className="lp-canvas">
+          <CanvasBoundary>
+            <Canvas camera={{ position: [0, 0, 8], fov: 55 }}>
+              <Scene mouse={mouseRef} />
+            </Canvas>
+          </CanvasBoundary>
+        </div>
 
-            <span
-              style={{
-                color: COLORS.cyan,
-                fontSize: 13,
-                letterSpacing: "0.1em",
-              }}
-            >
-              GLOBAL NETWORK ACTIVE
-            </span>
+        <div className="lp-hero-content">
+          <div className="lp-eyebrow">
+            <span className="lp-pulse-dot" />
+            GLOBAL NETWORK ACTIVE — 420 NODES ONLINE
           </div>
 
-          <h1
-            className="glow"
-            style={{
-              fontSize: "6rem",
-              lineHeight: 0.9,
-              marginTop: 30,
-              marginBottom: 20,
-              fontWeight: 900,
-            }}
-          >
-            CONTROL
-            <br />
-            GLOBAL
-            <br />
-            INFRASTRUCTURE
+          <h1 className="lp-hero-title">
+            Control<br />
+            <span className="lp-grad">Global</span><br />
+            Infrastructure
           </h1>
 
-          <p
-            style={{
-              color: "rgba(255,255,255,0.55)",
-              lineHeight: 1.8,
-              maxWidth: 650,
-              fontSize: 18,
-            }}
-          >
-            Interactive 3D neural infrastructure
-            visualization platform with realtime
-            packet routing and AI threat detection.
+          <p className="lp-hero-sub">
+            Interactive 3D neural infrastructure visualization with
+            realtime AI routing and adaptive threat detection.
           </p>
 
-          <div
-            style={{
-              display: "flex",
-              gap: 16,
-              marginTop: 30,
-            }}
-          >
-            <button
-              style={{
-                background: COLORS.cyan,
-                color: "black",
-                border: "none",
-                padding: "16px 32px",
-                borderRadius: 14,
-                fontWeight: 800,
-                cursor: "pointer",
-              }}
-            >
+          <div className="lp-hero-btns">
+            <button className="lp-btn-primary" onClick={() => setModal(true)}>
               Launch System
             </button>
-
-            <button
-              style={{
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                color: "white",
-                padding: "16px 32px",
-                borderRadius: 14,
-                cursor: "pointer",
-              }}
-            >
-              View Network
-            </button>
+            <button className="lp-btn-ghost">View Network →</button>
           </div>
 
-          <TerminalLogs />
-        </div>
-
-        {/* 3D */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-          }}
-        >
-          <Canvas camera={{ position: [0, 0, 10] }}>
-            <ambientLight intensity={0.5} />
-
-            <pointLight
-              position={[10, 10, 10]}
-              intensity={2}
-              color={COLORS.cyan}
-            />
-
-            <pointLight
-              position={[-10, -10, -10]}
-              intensity={2}
-              color={COLORS.purple}
-            />
-
-            <Stars
-              radius={100}
-              depth={50}
-              count={4000}
-              factor={4}
-              saturation={0}
-              fade
-            />
-
-            <NetworkSphere />
-
-            <OrbitControls
-              autoRotate
-              autoRotateSpeed={0.5}
-              enableZoom={false}
-            />
-          </Canvas>
+          <Terminal />
         </div>
       </section>
 
-      {/* METRICS */}
-      <section
-        style={{
-          padding: "4rem 6rem",
-          position: "relative",
-          zIndex: 10,
-        }}
-      >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "repeat(auto-fit, minmax(240px,1fr))",
-            gap: "1.5rem",
-          }}
-        >
-          <Metric
-            title="ACTIVE NODES"
-            value="412"
-          />
+      {/* ── Stats bar ──────────────────────────────────────────────────────── */}
+      <div className="lp-stats reveal">
+        {STATS.map(s => (
+          <div key={s.label} className="lp-stat">
+            <span className="lp-stat-val">{s.value}</span>
+            <span className="lp-stat-lbl">{s.label}</span>
+          </div>
+        ))}
+      </div>
 
-          <Metric
-            title="LATENCY"
-            value="12ms"
-          />
+      {/* ── Features ───────────────────────────────────────────────────────── */}
+      <section className="lp-features">
+        <div className="lp-section-head reveal">
+          <p className="lp-eyebrow">
+            <span className="lp-pulse-dot" />
+            CAPABILITIES
+          </p>
+          <h2 className="lp-section-title">
+            Built for the next<br />
+            <span className="lp-grad">generation</span> of networks
+          </h2>
+        </div>
 
-          <Metric
-            title="THREATS BLOCKED"
-            value="18,221"
-          />
-
-          <Metric
-            title="AI ROUTING"
-            value="ONLINE"
-          />
+        <div className="lp-feature-grid">
+          {FEATURES.map((f, i) => (
+            <div
+              key={f.title}
+              className="lp-card reveal"
+              style={{ transitionDelay: `${i * 90}ms` }}
+            >
+              <div className="lp-card-icon">{f.icon}</div>
+              <h3 className="lp-card-title">{f.title}</h3>
+              <p className="lp-card-desc">{f.desc}</p>
+            </div>
+          ))}
         </div>
       </section>
+
+      {/* ── CTA ────────────────────────────────────────────────────────────── */}
+      <section className="lp-cta reveal">
+        <h2 className="lp-cta-title">
+          Ready to take<br />
+          <span className="lp-grad">control?</span>
+        </h2>
+        <p className="lp-cta-sub">Join 1,200+ teams already running on Neural Ops.</p>
+        <button className="lp-btn-primary lp-btn-lg" onClick={() => setModal(true)}>
+          Get Early Access — Free
+        </button>
+      </section>
+
+      {/* ── Footer ─────────────────────────────────────────────────────────── */}
+      <footer className="lp-footer">
+        <div className="lp-logo" style={{ marginBottom: 12 }}>
+          <span className="lp-logo-mark">N</span>
+          NEURAL OPS
+        </div>
+        <p>© 2026 Neural Ops. All rights reserved.</p>
+      </footer>
+
+      {/* ── Modal ──────────────────────────────────────────────────────────── */}
+      {modal && (
+        <div className="lp-backdrop" onClick={() => setModal(false)}>
+          <div className="lp-modal" onClick={e => e.stopPropagation()}>
+            <button className="lp-modal-close" onClick={() => setModal(false)}>✕</button>
+            <h3 className="lp-grad" style={{ fontSize: "1.8rem", margin: "0 0 8px" }}>
+              Get Early Access
+            </h3>
+            <p className="lp-modal-sub">
+              Join the waitlist and be first to experience Neural Ops.
+            </p>
+            <form
+              className="lp-form"
+              onSubmit={e => { e.preventDefault(); setModal(false); }}
+            >
+              <input type="text" placeholder="Your name" required />
+              <input type="email" placeholder="Work email" required />
+              <button type="submit" className="lp-btn-primary" style={{ width: "100%" }}>
+                Request Access
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
